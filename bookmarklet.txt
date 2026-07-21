@@ -1,0 +1,1 @@
+javascript:(async function(){var u='https://cdn.jsdelivr.net/gh/khoichon/slsutils@main/sls-utils.js';try{await fetch('https://purge.jsdelivr.net/gh/khoichon/slsutils@main/sls-utils.js');}catch(e){}var s=document.createElement('script');s.src=u;document.documentElement.appendChild(s);})();
