@@ -548,8 +548,8 @@
 
     function getWallContent() {
       return query([
-        '.discussion-listing-wall > .content',
-        '#main-content .discussion-listing-wall .content'
+        '.discussion-listing-wall > .content > div',
+        '#main-content .discussion-listing-wall .content > div'
       ]);
     }
 
