@@ -64,8 +64,8 @@
 
         rememberPosition: true
 
-      }
-
+      },
+       'discussion-nav': { wrapAround: false } 
     },
 
     menuOpen: false
@@ -1040,7 +1040,177 @@
 
   })();
 
+  // ---------------------------------------------------------------------
+  // Feature: Discussion Previous/Next (forum post popup navigation)
+  // ---------------------------------------------------------------------
 
+  (function registerDiscussionNav() {
+    const prefs = SLSUtils.settings.prefs['discussion-nav'];
+
+    let enabled = false;
+    let popupObserver = null;
+    let currentIndex = null;
+    let navButtons = null;
+
+    // Prefer scoped class selectors; fall back to the exact path if SLS
+    // ever restructures the wrapper divs around the wall.
+    function query(selectors) {
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) return el;
+      }
+      return null;
+    }
+
+    function getWallContent() {
+      return query([
+        '.discussion-listing-wall > .content',
+        '#main-content .discussion-listing-wall .content'
+      ]);
+    }
+
+    function getPopupHost() {
+      return query(['#app > .content-subpage-container.is-visible > div']);
+    }
+
+    function getCard(index) {
+      const wall = getWallContent();
+      return wall ? wall.querySelector(`:scope > [index="${index}"]`) : null;
+    }
+
+    function getViewMoreBtn() {
+      const wall = getWallContent();
+      return wall ? wall.parentElement.querySelector(':scope > button') : null;
+    }
+
+    function cardCount() {
+      const wall = getWallContent();
+      return wall ? wall.children.length : 0;
+    }
+
+    // Click the card at `index`. If it hasn't been lazy-loaded into the
+    // wall yet, click "View more" and retry a few times.
+    function goTo(index, attemptsLeft = 5) {
+      if (index < 0) {
+        if (prefs.wrapAround) index = cardCount() - 1; else return;
+      }
+      const card = getCard(index);
+      if (card) {
+        currentIndex = index;
+        card.click();
+        updateButtonState();
+        return;
+      }
+      const viewMore = getViewMoreBtn();
+      if (viewMore && attemptsLeft > 0) {
+        viewMore.click();
+        setTimeout(() => goTo(index, attemptsLeft - 1), 400);
+      } else if (prefs.wrapAround && index !== 0) {
+        goTo(0, 0);
+      }
+    }
+
+    function updateButtonState() {
+      if (!navButtons) return;
+      const { prevBtn, nextBtn } = navButtons;
+      prevBtn.disabled = currentIndex <= 0 && !prefs.wrapAround;
+      const atEnd = currentIndex >= cardCount() - 1 && !getViewMoreBtn();
+      nextBtn.disabled = atEnd && !prefs.wrapAround;
+      prevBtn.style.opacity = prevBtn.disabled ? '.35' : '1';
+      nextBtn.style.opacity = nextBtn.disabled ? '.35' : '1';
+    }
+
+    function buildNavButtons(host) {
+      const mkBtn = (label, title, onClick) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.title = title;
+        b.style.cssText = `
+          position: fixed; top: 50%; transform: translateY(-50%);
+          z-index: 2147483000; width: 40px; height: 40px; border-radius: 50%;
+          border: none; background: rgba(0,0,0,.65); color: #fff; font-size: 18px;
+          cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+        `;
+        b.addEventListener('click', onClick);
+        return b;
+      };
+      const prevBtn = mkBtn('‹', 'Previous post (←)', () => goTo(currentIndex - 1));
+      const nextBtn = mkBtn('›', 'Next post (→)', () => goTo(currentIndex + 1));
+
+      function position() {
+        const rect = host.getBoundingClientRect();
+        prevBtn.style.left = Math.max(8, rect.left - 56) + 'px';
+        nextBtn.style.left = Math.min(window.innerWidth - 48, rect.right + 16) + 'px';
+      }
+      position();
+      window.addEventListener('resize', position);
+      document.body.append(prevBtn, nextBtn);
+
+      return {
+        prevBtn, nextBtn,
+        cleanup() {
+          window.removeEventListener('resize', position);
+          prevBtn.remove();
+          nextBtn.remove();
+        }
+      };
+    }
+
+    function teardownButtons() {
+      if (navButtons) { navButtons.cleanup(); navButtons = null; }
+    }
+
+    function onWallClick(e) {
+      const card = e.target.closest('[index].card-component');
+      if (!card) return;
+      const idx = parseInt(card.getAttribute('index'), 10);
+      if (!isNaN(idx)) currentIndex = idx;
+    }
+
+    function onPopupKeydown(e) {
+      if (!navButtons) return;
+      const tag = (e.target && e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (e.key === 'ArrowLeft') { goTo(currentIndex - 1); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { goTo(currentIndex + 1); e.preventDefault(); }
+    }
+
+    function watchPopup() {
+      popupObserver = new MutationObserver(() => {
+        const host = getPopupHost();
+        if (host && host.children.length && !navButtons) {
+          navButtons = buildNavButtons(host);
+          updateButtonState();
+        } else if ((!host || !host.children.length) && navButtons) {
+          teardownButtons();
+        }
+      });
+      popupObserver.observe(document.querySelector('#app') || document.body, {
+        childList: true, subtree: true
+      });
+    }
+
+    const feature = {
+      id: 'discussion-nav',
+      name: 'Discussion Previous/Next buttons',
+      enable() {
+        if (enabled) return;
+        enabled = true;
+        document.addEventListener('click', onWallClick, true);
+        document.addEventListener('keydown', onPopupKeydown, true);
+        watchPopup();
+      },
+      disable() {
+        enabled = false;
+        if (popupObserver) popupObserver.disconnect();
+        document.removeEventListener('click', onWallClick, true);
+        document.removeEventListener('keydown', onPopupKeydown, true);
+        teardownButtons();
+      }
+    };
+
+    SLSUtils.registerFeature(feature);
+  })();
 
   toast('SLS Utils loaded');
 
